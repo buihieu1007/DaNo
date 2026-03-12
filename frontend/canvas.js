@@ -641,7 +641,7 @@ class AnnotationCanvas {
   }
 
   // Extracts completely disjoint "zones" of annotations using Connected Components Labeling (BFS)
-  getLabeledZones() {
+  async getLabeledZones() {
     if (!this.mask) return [];
     
     const zones = [];
@@ -652,7 +652,12 @@ class AnnotationCanvas {
     // BFS queue array. Pre-allocate for performance, though we track indices manually.
     const queue = new Int32Array(width * height);
     
+    let loopCounter = 0;
     for (let i = 0; i < this.mask.length; i++) {
+      if (++loopCounter % 50000 === 0) {
+        await new Promise(r => setTimeout(r, 0)); // yield thread roughly every 50k pixels
+      }
+
       const classId = this.mask[i];
       if (classId !== 0 && visited[i] === 0) {
         // Found a new disjoint component!
@@ -670,7 +675,12 @@ class AnnotationCanvas {
         queue[qTail++] = i;
         visited[i] = 1;
         
+        let bfsCounter = 0;
         while (qHead < qTail) {
+          if (++bfsCounter % 20000 === 0) {
+             await new Promise(r => setTimeout(r, 0)); // yield thread during deep queue searches
+          }
+
           const curr = queue[qHead++];
           
           const x = curr % width;

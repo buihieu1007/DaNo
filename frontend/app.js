@@ -226,7 +226,7 @@ class App {
 
       const mask = this.canvas.getMask();
       const shape = [this.canvas.imageH, this.canvas.imageW];
-      const zones = this.canvas.getLabeledZones();
+      const zones = await this.canvas.getLabeledZones();
       await API.saveAnnotation(img.path, mask, shape, this.classes, zones);
 
       // Update annotated status without full DOM rebuild
@@ -275,10 +275,10 @@ class App {
     }
   }
 
-  setActiveClass(id) {
+  async setActiveClass(id) {
     this.activeClassId = id;
     this.canvas.setActiveClass(id);
-    const zones = this.canvas.getLabeledZones ? this.canvas.getLabeledZones() : [];
+    const zones = this.canvas.getLabeledZones ? (await this.canvas.getLabeledZones()) : [];
     this.toolbar.renderClassList(this.classes, id, zones);
   }
 
@@ -286,8 +286,8 @@ class App {
 
   renderZonesList() {
     // Only implemented for visual updates
-    setTimeout(() => {
-      const zones = this.canvas.getLabeledZones();
+    setTimeout(async () => {
+      const zones = await this.canvas.getLabeledZones();
       this.toolbar.renderClassList(this.classes, this.activeClassId, zones);
     }, 50);
   }
