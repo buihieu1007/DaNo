@@ -420,10 +420,10 @@ class AnnotationCanvas {
         this.interCanvas.style.cursor = 'ew-resize';
       }
 
-      // Calculate deltaX to change brush size
+      // Calculate deltaX to change brush size (1-to-1 screen pixels)
       const deltaX = pos.x - this.resizeStart.x;
-      let newSize = this.resizeStart.size + Math.round(deltaX * 0.2); // 0.2 scale factor for smoothness
-      newSize = Math.max(1, Math.min(100, newSize));
+      let newSize = this.resizeStart.size + Math.round(deltaX); 
+      newSize = Math.max(1, Math.min(300, newSize));
       
       if (newSize !== this.brushSize) {
         this.setBrushSize(newSize);
@@ -497,7 +497,7 @@ class AnnotationCanvas {
   _drawBrushCursor(screenPos, imgPos) {
     const ctx = this.interCtx;
     this.renderInteraction(); // clear + re-draw polygon if any
-    const r = this.brushSize * this.zoom;
+    const r = this.brushSize; // Brush size is now in constant screen pixels
     ctx.save();
     ctx.beginPath();
     ctx.arc(screenPos.x, screenPos.y, r, 0, Math.PI * 2);
@@ -585,7 +585,8 @@ class AnnotationCanvas {
     const classId = this.tool === 'eraser' || this.subtractMode ? 0 : this.activeClassId;
     if (classId === 0 && this.tool === 'brush' && !this.subtractMode) return;
 
-    const r = this.brushSize;
+    // Convert screen pixel brush radius into image space radius
+    const r = Math.max(1, Math.round(this.brushSize / this.zoom));
     const cx = Math.round(imgPos.x);
     const cy = Math.round(imgPos.y);
 
