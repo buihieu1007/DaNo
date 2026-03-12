@@ -425,13 +425,17 @@ class AnnotationCanvas {
       // Clamp between 1 and 100
       newSize = Math.max(1, Math.min(100, newSize));
       
-      this.setBrushSize(newSize);
-      this._drawBrushCursor(pos, imgPos);
-      
-      // Update UI slider if available
-      if (window.app && window.app.toolbar && window.app.toolbar.syncBrushSize) {
-        window.app.toolbar.syncBrushSize(newSize);
+      // Prevent DOM layout thrashing by ONLY syncing if the integer actually changed
+      if (newSize !== this.brushSize) {
+        this.setBrushSize(newSize);
+        // Update UI slider if available
+        if (window.app && window.app.toolbar && window.app.toolbar.syncBrushSize) {
+          window.app.toolbar.syncBrushSize(newSize);
+        }
       }
+      
+      // Update cursor position visually without triggering DOM element changes
+      this._drawBrushCursor(pos, imgPos);
       return;
     }
 
