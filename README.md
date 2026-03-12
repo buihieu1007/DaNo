@@ -1,5 +1,9 @@
 # DaNo Data Annotation Tool
 
+<p align="center">
+  <img src="frontend/logo.png" alt="DaNo Logo" width="400"/>
+</p>
+
 A high-performance, web-based data annotation tool tailored for machine vision and surface defect detection. Inspired by the native UnitX CorteX/DaNo Label Editor, this lightweight app enables rapid polygon, brush, and eraser-based pixel-level labeling.
 
 ## Key Features
