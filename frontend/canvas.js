@@ -192,9 +192,17 @@ class AnnotationCanvas {
   }
 
   _zoomAt(cx, cy, factor) {
-    const oldZoom = this.zoom;
     const minZoomLimit = this.minZoom || 0.05;
-    this.zoom = Math.max(minZoomLimit, Math.min(50, this.zoom * factor));
+    const targetZoom = this.zoom * factor;
+
+    // Center and snap perfectly to fit-view bounds if zooming out too far
+    if (targetZoom <= minZoomLimit) {
+      this.fitView();
+      return;
+    }
+
+    const oldZoom = this.zoom;
+    this.zoom = Math.min(50, targetZoom);
     const ratio = this.zoom / oldZoom;
     this.panX = cx - (cx - this.panX) * ratio;
     this.panY = cy - (cy - this.panY) * ratio;

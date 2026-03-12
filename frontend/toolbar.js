@@ -11,6 +11,7 @@ class Toolbar {
     this._bindOverlay();
     this._bindClassButtons();
     this._bindKeyboard();
+    this.collapsedClasses = new Set();
   }
 
   /* ── Tool Buttons ─────────────────────────────────────────────────────── */
@@ -120,23 +121,39 @@ class Toolbar {
     classes.forEach(cls => {
       const li = document.createElement('li');
       if (cls.id === activeId) li.classList.add('active');
-      li.innerHTML = `
+      
+      // Determine if there are zones for this class
+      const clsZones = zones.filter(z => z.classId === cls.id);
+      const isCollapsed = this.collapsedClasses.has(cls.id);
+      
+      const headerDiv = document.createElement('div');
+      headerDiv.style.display = 'flex';
+      headerDiv.style.alignItems = 'center';
+      headerDiv.style.gap = '8px';
+      headerDiv.style.width = '100%';
+      headerDiv.style.cursor = 'pointer';
+      
+      let collapseIcon = '';
+      if (clsZones.length > 0) {
+        collapseIcon = `<span class="material-symbols-outlined" style="font-size:16px; opacity:0.6">${isCollapsed ? 'expand_more' : 'expand_less'}</span>`;
+      }
+
+      headerDiv.innerHTML = `
         <span class="class-swatch" style="background:${cls.color}"></span>
         <span style="flex:1;">${cls.name}</span>
+        ${collapseIcon}
         <span class="class-id">#${cls.id}</span>
       `;
-      li.addEventListener('click', (e) => {
-        if (!e.target.closest('.zone-action-btn')) {
-          this.app.setActiveClass(cls.id);
-        }
-      });
       
-      // Filter zones for this class
-      const clsZones = zones.filter(z => z.classId === cls.id);
-      
-      if (clsZones.length > 0) {
+      li.appendChild(headerDiv);
+
+      if (clsZones.length > 0 && !isCollapsed) {
+        li.style.flexDirection = 'column';
+        li.style.alignItems = 'stretch';
+        
         const zoneList = document.createElement('ul');
         zoneList.className = 'zone-list';
+        
         clsZones.forEach((z, idx) => {
           const zli = document.createElement('li');
           zli.className = 'zone-item';
@@ -157,24 +174,24 @@ class Toolbar {
           zoneList.appendChild(zli);
         });
         li.appendChild(zoneList);
-        li.style.flexDirection = 'column';
-        li.style.alignItems = 'stretch';
-        
-        // Wrap the main class row details in a flex container since the Li is now a column
-        li.innerHTML = `
-          <div style="display:flex; align-items:center; gap:8px; width:100%;">
-            <span class="class-swatch" style="background:${cls.color}"></span>
-            <span style="flex:1;">${cls.name}</span>
-            <span class="class-id">#${cls.id}</span>
-          </div>
-        `;
-        li.appendChild(zoneList);
-
-        // Re-attach click to the new div
-        li.firstElementChild.addEventListener('click', () => {
-          this.app.setActiveClass(cls.id);
-        });
       }
+
+      // Click listener for the header row
+      headerDiv.addEventListener('click', (e) => {
+        if (this.app.activeClassId === cls.id) {
+          // Already active, toggle collapse
+          if (this.collapsedClasses.has(cls.id)) {
+            this.collapsedClasses.delete(cls.id);
+          } else {
+            this.collapsedClasses.add(cls.id);
+          }
+          if (this.app.renderZonesList) this.app.renderZonesList();
+        } else {
+          // Select it and make sure it's expanded
+          this.collapsedClasses.delete(cls.id);
+          this.app.setActiveClass(cls.id);
+        }
+      });
 
       list.appendChild(li);
     });

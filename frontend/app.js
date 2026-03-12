@@ -278,7 +278,8 @@ class App {
   setActiveClass(id) {
     this.activeClassId = id;
     this.canvas.setActiveClass(id);
-    this.toolbar.renderClassList(this.classes, id);
+    const zones = this.canvas.getLabeledZones ? this.canvas.getLabeledZones() : [];
+    this.toolbar.renderClassList(this.classes, id, zones);
   }
 
   /* ── Zone Listing ─────────────────────────────────────────────────────── */
