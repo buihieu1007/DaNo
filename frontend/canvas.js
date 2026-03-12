@@ -367,13 +367,7 @@ class AnnotationCanvas {
       return;
     }
 
-    // Ctrl + Left Click = Resize Brush
-    if (e.button === 0 && e.ctrlKey && (this.tool === 'brush' || this.tool === 'eraser')) {
-      this.isResizingBrush = true;
-      this.resizeStart = { x: pos.x, y: pos.y, size: this.brushSize };
-      this.interCanvas.style.cursor = 'ew-resize';
-      return;
-    }
+    // Removed Ctrl+Left Click requirement
 
     // Right click = finish polygon
     if (e.button === 2) {
@@ -418,25 +412,31 @@ class AnnotationCanvas {
       return;
     }
 
-    if (this.isResizingBrush) {
+    // Ctrl + Mouse Move = Resize Brush
+    if (e.ctrlKey && (this.tool === 'brush' || this.tool === 'eraser')) {
+      if (!this.isResizingBrush) {
+        this.isResizingBrush = true;
+        this.resizeStart = { x: pos.x, y: pos.y, size: this.brushSize };
+        this.interCanvas.style.cursor = 'ew-resize';
+      }
+
       // Calculate deltaX to change brush size
       const deltaX = pos.x - this.resizeStart.x;
       let newSize = this.resizeStart.size + Math.round(deltaX * 0.2); // 0.2 scale factor for smoothness
-      // Clamp between 1 and 100
       newSize = Math.max(1, Math.min(100, newSize));
       
-      // Prevent DOM layout thrashing by ONLY syncing if the integer actually changed
       if (newSize !== this.brushSize) {
         this.setBrushSize(newSize);
-        // Update UI slider if available
         if (window.app && window.app.toolbar && window.app.toolbar.syncBrushSize) {
           window.app.toolbar.syncBrushSize(newSize);
         }
       }
-      
-      // Update cursor position visually without triggering DOM element changes
       this._drawBrushCursor(pos, imgPos);
       return;
+    } else if (this.isResizingBrush) {
+      // Stopped holding Ctrl
+      this.isResizingBrush = false;
+      this._updateCursor();
     }
 
     if (this.isPainting && (this.tool === 'brush' || this.tool === 'eraser')) {
@@ -453,11 +453,6 @@ class AnnotationCanvas {
   _onMouseUp(e) {
     if (this.isPanning) {
       this.isPanning = false;
-      this._updateCursor();
-      return;
-    }
-    if (this.isResizingBrush) {
-      this.isResizingBrush = false;
       this._updateCursor();
       return;
     }
