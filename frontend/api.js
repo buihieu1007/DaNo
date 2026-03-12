@@ -108,6 +108,8 @@ const API = {
     const baseName = imagePath.replace(/\.[^/.]+$/, ""); // original image name without extension
     const fullShapeArraySize = shape[0] * shape[1];
     
+    const writeTasks = [];
+
     // Create folders and save files per class present in mask
     for (const cls of classesInfo) {
       // 1. Isolate the mask for just this class
@@ -115,36 +117,42 @@ const API = {
       let classHasData = false;
       for (let i = 0; i < mask.length; i++) {
         if (mask[i] === cls.id) {
-          classMask[i] = 1; // Or maintain cls.id if preferred, but usually binary masks are saved per-class
+          classMask[i] = 1; 
           classHasData = true;
         }
       }
 
       if (classHasData) {
         // Create or get the NG_type directory
-        const ngDir = await this.dirHandle.getDirectoryHandle(cls.name, { create: true });
-        await this._writeNpy(ngDir, baseName + '.npy', classMask, shape);
+        writeTasks.push((async () => {
+          const ngDir = await this.dirHandle.getDirectoryHandle(cls.name, { create: true });
+          await this._writeNpy(ngDir, baseName + '.npy', classMask, shape);
+        })());
 
         // Filter isolated zones for this class
         const clsZones = zones.filter(z => z.classId === cls.id);
         if (clsZones.length > 0) {
-          const singleDir = await this.dirHandle.getDirectoryHandle(cls.name + "-single", { create: true });
-          
-          for (let zIdx = 0; zIdx < clsZones.length; zIdx++) {
-            const zone = clsZones[zIdx];
-            const singleMask = new Uint8Array(fullShapeArraySize);
-            for (let i = 0; i < zone.pixels.length; i++) {
-              singleMask[zone.pixels[i]] = 1;
+          writeTasks.push((async () => {
+            const singleDir = await this.dirHandle.getDirectoryHandle(cls.name + "-single", { create: true });
+            const zoneTasks = [];
+            for (let zIdx = 0; zIdx < clsZones.length; zIdx++) {
+              const zone = clsZones[zIdx];
+              const singleMask = new Uint8Array(fullShapeArraySize);
+              for (let i = 0; i < zone.pixels.length; i++) {
+                singleMask[zone.pixels[i]] = 1;
+              }
+              zoneTasks.push(this._writeNpy(singleDir, `${baseName}_${zIdx + 1}.npy`, singleMask, shape));
             }
-            await this._writeNpy(singleDir, `${baseName}_${zIdx + 1}.npy`, singleMask, shape);
-          }
+            await Promise.all(zoneTasks);
+          })());
         }
       }
     }
     
     // Write out the master single file so that loading functions still work
-    await this._writeNpy(this.dirHandle, baseName + '_annotation.npy', mask, shape);
+    writeTasks.push(this._writeNpy(this.dirHandle, baseName + '_annotation.npy', mask, shape));
 
+    await Promise.all(writeTasks);
     return { saved: true };
   },
 
@@ -153,32 +161,36 @@ const API = {
     const baseName = imagePath.replace(/\.[^/.]+$/, "");
     const annName = baseName + '_annotation.npy';
     
-    try {
-      await this.dirHandle.removeEntry(annName);
-    } catch (e) {
-      // Ignore main file missing
-    }
+    const deleteTasks = [];
+
+    deleteTasks.push((async () => {
+      try {
+        await this.dirHandle.removeEntry(annName);
+      } catch (e) {}
+    })());
 
     // Try to delete class-specific ones
     for (const cls of classesInfo) {
-      try {
-        const ngDir = await this.dirHandle.getDirectoryHandle(cls.name);
-        await ngDir.removeEntry(baseName + '.npy');
-      } catch (e) {}
+      deleteTasks.push((async () => {
+        try {
+          const ngDir = await this.dirHandle.getDirectoryHandle(cls.name);
+          await ngDir.removeEntry(baseName + '.npy');
+        } catch (e) {}
+      })());
 
-      try {
-        const singleDir = await this.dirHandle.getDirectoryHandle(cls.name + "-single");
-        // We don't know exactly how many, try removing up to 20
-        for (let i = 1; i <= 20; i++) {
-          try {
-            await singleDir.removeEntry(`${baseName}_${i}.npy`);
-          } catch(e) {
-            break; // assume no more once one fails
+      deleteTasks.push((async () => {
+        try {
+          const singleDir = await this.dirHandle.getDirectoryHandle(cls.name + "-single");
+          const zoneTasks = [];
+          for (let i = 1; i <= 20; i++) {
+            zoneTasks.push(singleDir.removeEntry(`${baseName}_${i}.npy`).catch(() => {}));
           }
-        }
-      } catch (e) {}
+          await Promise.all(zoneTasks);
+        } catch (e) {}
+      })());
     }
 
+    await Promise.all(deleteTasks);
     return { deleted: true };
   },
 
