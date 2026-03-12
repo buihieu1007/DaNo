@@ -442,6 +442,15 @@ class AnnotationCanvas {
     if (this.isPainting && (this.tool === 'brush' || this.tool === 'eraser')) {
       this._paintLine(this.lastPaintPos, imgPos);
       this.lastPaintPos = imgPos;
+      
+      // Batch the heavy renderAnnotation call using requestAnimationFrame
+      if (!this._renderPending) {
+        this._renderPending = true;
+        requestAnimationFrame(() => {
+          this.renderAnnotation();
+          this._renderPending = false;
+        });
+      }
     }
 
     // Draw brush cursor on interaction canvas
@@ -590,15 +599,36 @@ class AnnotationCanvas {
     const cx = Math.round(imgPos.x);
     const cy = Math.round(imgPos.y);
 
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (dx * dx + dy * dy > r * r) continue;
-        const px = cx + dx, py = cy + dy;
-        if (px < 0 || px >= this.imageW || py < 0 || py >= this.imageH) continue;
-        this.mask[py * this.imageW + px] = classId;
+    // High performance brush: Pre-calculate the circle offsets and cache them
+    if (!this._brushCache || this._brushCache.r !== r) {
+      const offsets = [];
+      const r_sq = r * r;
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (dx * dx + dy * dy <= r_sq) {
+            offsets.push({ dx, dy });
+          }
+        }
       }
+      this._brushCache = { r, offsets };
     }
-    this.renderAnnotation();
+
+    // Apply cached offsets directly without math or conditionals
+    const offsets = this._brushCache.offsets;
+    const width = this.imageW;
+    const height = this.imageH;
+    const mask = this.mask;
+    
+    for (let i = 0; i < offsets.length; i++) {
+        const px = cx + offsets[i].dx;
+        const py = cy + offsets[i].dy;
+        if (px >= 0 && px < width && py >= 0 && py < height) {
+           mask[py * width + px] = classId;
+        }
+    }
+    
+    // Rendering is now deferred via requestAnimationFrame in _onMouseMove,
+    // so we removed the synchronous renderAnnotation() call here.
   }
 
   _paintLine(from, to) {
