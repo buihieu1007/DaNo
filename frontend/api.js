@@ -110,43 +110,46 @@ const API = {
     
     const writeTasks = [];
 
-    // Create folders and save files per class present in mask
-    for (const cls of classesInfo) {
-      // 1. Isolate the mask for just this class
+    // Create folders and save files per class using the pre-calculated zones
+    const classesWithZones = classesInfo.filter(cls => zones.some(z => z.classId === cls.id));
+
+    for (const cls of classesWithZones) {
+      await new Promise(r => setTimeout(r, 0)); // Yield thread to keep UI alive
+      
+      const clsZones = zones.filter(z => z.classId === cls.id);
+      
+      // 1. Isolate the mask for just this class using only annotated pixels
       const classMask = new Uint8Array(fullShapeArraySize);
-      let classHasData = false;
-      for (let i = 0; i < mask.length; i++) {
-        if (mask[i] === cls.id) {
-          classMask[i] = 1; 
-          classHasData = true;
+      for (let zIdx = 0; zIdx < clsZones.length; zIdx++) {
+        const zonePixels = clsZones[zIdx].pixels;
+        for (let i = 0; i < zonePixels.length; i++) {
+          classMask[zonePixels[i]] = 1;
         }
       }
 
-      if (classHasData) {
-        // Create or get the NG_type directory
-        writeTasks.push((async () => {
-          const ngDir = await this.dirHandle.getDirectoryHandle(cls.name, { create: true });
-          await this._writeNpy(ngDir, baseName + '.npy', classMask, shape);
-        })());
+      // Create or get the NG_type directory
+      writeTasks.push((async () => {
+        const ngDir = await this.dirHandle.getDirectoryHandle(cls.name, { create: true });
+        await this._writeNpy(ngDir, baseName + '.npy', classMask, shape);
+      })());
 
-        // Filter isolated zones for this class
-        const clsZones = zones.filter(z => z.classId === cls.id);
-        if (clsZones.length > 0) {
-          writeTasks.push((async () => {
-            const singleDir = await this.dirHandle.getDirectoryHandle(cls.name + "-single", { create: true });
-            const zoneTasks = [];
-            for (let zIdx = 0; zIdx < clsZones.length; zIdx++) {
-              const zone = clsZones[zIdx];
-              const singleMask = new Uint8Array(fullShapeArraySize);
-              for (let i = 0; i < zone.pixels.length; i++) {
-                singleMask[zone.pixels[i]] = 1;
-              }
-              zoneTasks.push(this._writeNpy(singleDir, `${baseName}_${zIdx + 1}.npy`, singleMask, shape));
-            }
-            await Promise.all(zoneTasks);
-          })());
+      // Save isolated zones for this class
+      writeTasks.push((async () => {
+        const singleDir = await this.dirHandle.getDirectoryHandle(cls.name + "-single", { create: true });
+        const zoneTasks = [];
+        
+        for (let zIdx = 0; zIdx < clsZones.length; zIdx++) {
+          if (zIdx % 2 === 0) await new Promise(r => setTimeout(r, 0)); // Yield thread occasionally
+          
+          const zone = clsZones[zIdx];
+          const singleMask = new Uint8Array(fullShapeArraySize);
+          for (let i = 0; i < zone.pixels.length; i++) {
+            singleMask[zone.pixels[i]] = 1;
+          }
+          zoneTasks.push(this._writeNpy(singleDir, `${baseName}_${zIdx + 1}.npy`, singleMask, shape));
         }
-      }
+        await Promise.all(zoneTasks);
+      })());
     }
     
     // Write out the master single file so that loading functions still work
