@@ -640,34 +640,24 @@ class AnnotationCanvas {
     return false;
   }
 
-  // Extracts completely disjoint "zones" of annotations using Connected Components Labeling (BFS)
-  async getLabeledZones() {
+  // Extracts disjoint "zones" of annotations using a high-performance synchronous BFS
+  getLabeledZones() {
     if (!this.mask) return [];
     
     const zones = [];
     const width = this.imageW;
     const height = this.imageH;
-    const visited = new Uint8Array(width * height);
+    const len = width * height;
+    const visited = new Uint8Array(len);
     
-    // BFS queue array. Pre-allocate for performance, though we track indices manually.
-    const queue = new Int32Array(width * height);
+    // Pre-allocate queue for performance
+    const queue = new Int32Array(len);
     
-    let loopCounter = 0;
-    for (let i = 0; i < this.mask.length; i++) {
-      if (++loopCounter % 50000 === 0) {
-        await new Promise(r => setTimeout(r, 0)); // yield thread roughly every 50k pixels
-      }
-
+    for (let i = 0; i < len; i++) {
       const classId = this.mask[i];
       if (classId !== 0 && visited[i] === 0) {
-        // Found a new disjoint component!
-        const zone = {
-          classId: classId,
-          pixels: null, // will hold typed array
-          minX: Infinity, minY: Infinity,
-          maxX: -Infinity, maxY: -Infinity
-        };
         
+        // Found a new disjoint component!
         let qHead = 0;
         let qTail = 0;
         
@@ -675,45 +665,58 @@ class AnnotationCanvas {
         queue[qTail++] = i;
         visited[i] = 1;
         
-        let bfsCounter = 0;
+        let minX = width;
+        let minY = height;
+        let maxX = -1;
+        let maxY = -1;
+        
         while (qHead < qTail) {
-          if (++bfsCounter % 20000 === 0) {
-             await new Promise(r => setTimeout(r, 0)); // yield thread during deep queue searches
-          }
-
           const curr = queue[qHead++];
           
           const x = curr % width;
-          const y = Math.floor(curr / width);
+          const y = (curr / width) | 0; // fast integer division
           
-          if (x < zone.minX) zone.minX = x;
-          if (x > zone.maxX) zone.maxX = x;
-          if (y < zone.minY) zone.minY = y;
-          if (y > zone.maxY) zone.maxY = y;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
           
           // Check 4 neighbors
-          const neighbors = [
-            curr - 1,       // left
-            curr + 1,       // right
-            curr - width,   // up
-            curr + width    // down
-          ];
-          
-          for (const n of neighbors) {
-            // Bounds check handles wrap-around correctly since we use % and / for x/y
-            if (n >= 0 && n < visited.length && this.mask[n] === classId && visited[n] === 0) {
-              // Prevent left/right wrapping
-              const nx = n % width;
-              if (Math.abs(nx - x) > 1) continue;
-              
-              visited[n] = 1;
-              queue[qTail++] = n;
-            }
+          // Left
+          if (x > 0) {
+             const n = curr - 1;
+             if (visited[n] === 0 && this.mask[n] === classId) {
+                 visited[n] = 1; queue[qTail++] = n;
+             }
+          }
+          // Right
+          if (x < width - 1) {
+             const n = curr + 1;
+             if (visited[n] === 0 && this.mask[n] === classId) {
+                 visited[n] = 1; queue[qTail++] = n;
+             }
+          }
+          // Up
+          if (y > 0) {
+             const n = curr - width;
+             if (visited[n] === 0 && this.mask[n] === classId) {
+                 visited[n] = 1; queue[qTail++] = n;
+             }
+          }
+          // Down
+          if (y < height - 1) {
+             const n = curr + width;
+             if (visited[n] === 0 && this.mask[n] === classId) {
+                 visited[n] = 1; queue[qTail++] = n;
+             }
           }
         }
         
-        zone.pixels = queue.slice(0, qTail);
-        zones.push(zone);
+        zones.push({
+          classId: classId,
+          pixels: queue.slice(0, qTail),
+          minX, minY, maxX, maxY
+        });
       }
     }
     
