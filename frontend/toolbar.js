@@ -51,6 +51,15 @@ class Toolbar {
     });
   }
 
+  syncBrushSize(size) {
+    const slider = document.getElementById('brushSize');
+    const val = document.getElementById('brushSizeVal');
+    if (slider && val) {
+      slider.value = size;
+      val.textContent = size;
+    }
+  }
+
   /* ── Subtract Mode ────────────────────────────────────────────────────── */
 
   _bindSubtract() {

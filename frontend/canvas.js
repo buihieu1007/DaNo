@@ -48,6 +48,10 @@ class AnnotationCanvas {
     this.isPainting = false;
     this.lastPaintPos = null;
 
+    // Brush Resizing (Ctrl + Drag)
+    this.isResizingBrush = false;
+    this.resizeStart = { x: 0, y: 0, size: 0 };
+
     // Panning
     this.isPanning = false;
     this.panStart = { x: 0, y: 0 };
@@ -363,6 +367,14 @@ class AnnotationCanvas {
       return;
     }
 
+    // Ctrl + Left Click = Resize Brush
+    if (e.button === 0 && e.ctrlKey && (this.tool === 'brush' || this.tool === 'eraser')) {
+      this.isResizingBrush = true;
+      this.resizeStart = { x: pos.x, y: pos.y, size: this.brushSize };
+      this.interCanvas.style.cursor = 'ew-resize';
+      return;
+    }
+
     // Right click = finish polygon
     if (e.button === 2) {
       if (this.polyActive) {
@@ -406,6 +418,23 @@ class AnnotationCanvas {
       return;
     }
 
+    if (this.isResizingBrush) {
+      // Calculate deltaX to change brush size
+      const deltaX = pos.x - this.resizeStart.x;
+      let newSize = this.resizeStart.size + Math.round(deltaX * 0.2); // 0.2 scale factor for smoothness
+      // Clamp between 1 and 100
+      newSize = Math.max(1, Math.min(100, newSize));
+      
+      this.setBrushSize(newSize);
+      this._drawBrushCursor(pos, imgPos);
+      
+      // Update UI slider if available
+      if (window.app && window.app.toolbar && window.app.toolbar.syncBrushSize) {
+        window.app.toolbar.syncBrushSize(newSize);
+      }
+      return;
+    }
+
     if (this.isPainting && (this.tool === 'brush' || this.tool === 'eraser')) {
       this._paintLine(this.lastPaintPos, imgPos);
       this.lastPaintPos = imgPos;
@@ -423,6 +452,11 @@ class AnnotationCanvas {
       this._updateCursor();
       return;
     }
+    if (this.isResizingBrush) {
+      this.isResizingBrush = false;
+      this._updateCursor();
+      return;
+    }
     if (this.isPainting) {
       this.isPainting = false;
       this.lastPaintPos = null;
@@ -435,6 +469,7 @@ class AnnotationCanvas {
   _onMouseLeave() {
     this.isPanning = false;
     this.isPainting = false;
+    this.isResizingBrush = false;
     this.lastPaintPos = null;
     // Clear brush cursor
     if (this.tool === 'brush' || this.tool === 'eraser') {
