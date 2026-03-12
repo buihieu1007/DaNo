@@ -12,10 +12,19 @@ const API = {
     for await (const entry of this.dirHandle.values()) {
       if (entry.kind === 'file' && entry.name.match(/\.(png|jpg|jpeg|bmp|tif|tiff|webp)$/i)) {
         let annotated = false;
+        const baseName = entry.name.replace(/\.[^/.]+$/, "");
+        
         try {
-          const annName = entry.name.replace(/\.[^/.]+$/, "") + '_annotation.npy';
-          await this.dirHandle.getFileHandle(annName);
-          annotated = true;
+          // Check if any class folder contains the annotation
+          const classesInfo = await this.getClasses();
+          for (const cls of classesInfo.classes) {
+            try {
+              const ngDir = await this.dirHandle.getDirectoryHandle(cls.name);
+              await ngDir.getFileHandle(baseName + '.npy');
+              annotated = true;
+              break; // Found one, no need to check others
+            } catch(e) {}
+          }
         } catch(e) {}
         
         items.push({
@@ -52,25 +61,51 @@ const API = {
 
   async getAnnotation(imagePath) {
     if (!this.dirHandle) throw new Error("No folder opened");
-    const annName = imagePath.replace(/\.[^/.]+$/, "") + '_annotation.npy';
-    try {
-      const fileHandle = await this.dirHandle.getFileHandle(annName);
-      const file = await fileHandle.getFile();
-      const buffer = await file.arrayBuffer();
-      
-      const uint8 = new Uint8Array(buffer);
-      const dataView = new DataView(buffer);
-      const headerLen = dataView.getUint16(8, true);
-      const offset = 10 + headerLen;
-      
-      const shapeStr = new TextDecoder().decode(uint8.slice(10, offset));
-      const shapeMatch = shapeStr.match(/'shape':\s*\(\s*(\d+),\s*(\d+)\s*,?\)/);
-      const shape = shapeMatch ? [parseInt(shapeMatch[1]), parseInt(shapeMatch[2])] : [0,0];
-      
-      const data = uint8.slice(offset);
-      
-      return { exists: true, data: data, shape: shape, dtype: 'uint8' };
-    } catch(e) {
+    const baseName = imagePath.replace(/\.[^/.]+$/, "");
+    let masterMask = null;
+    let masterShape = [0, 0];
+    let hasAnyAnnotation = false;
+    
+    // We get classes to know which folders to check
+    const classesInfo = await this.getClasses();
+    
+    for (const cls of classesInfo.classes) {
+      try {
+        const ngDir = await this.dirHandle.getDirectoryHandle(cls.name);
+        const fileHandle = await ngDir.getFileHandle(baseName + '.npy');
+        const file = await fileHandle.getFile();
+        const buffer = await file.arrayBuffer();
+        
+        const uint8 = new Uint8Array(buffer);
+        const dataView = new DataView(buffer);
+        const headerLen = dataView.getUint16(8, true);
+        const offset = 10 + headerLen;
+        
+        const shapeStr = new TextDecoder().decode(uint8.slice(10, offset));
+        const shapeMatch = shapeStr.match(/'shape':\s*\(\s*(\d+),\s*(\d+)\s*,?\)/);
+        const shape = shapeMatch ? [parseInt(shapeMatch[1]), parseInt(shapeMatch[2])] : [0,0];
+        const data = uint8.slice(offset);
+        
+        if (!masterMask) {
+          masterMask = new Uint8Array(shape[0] * shape[1]);
+          masterShape = shape;
+        }
+        
+        // Merge this class's mask into the master mask
+        for (let i = 0; i < data.length; i++) {
+          if (data[i] !== 0) {
+            masterMask[i] = cls.id; // Assign the class ID
+          }
+        }
+        hasAnyAnnotation = true;
+      } catch (e) {
+        // Class folder or file doesn't exist for this image, which is fine
+      }
+    }
+    
+    if (hasAnyAnnotation) {
+      return { exists: true, data: masterMask, shape: masterShape, dtype: 'uint8' };
+    } else {
       return { exists: false, data: null };
     }
   },
@@ -152,8 +187,7 @@ const API = {
       })());
     }
     
-    // Write out the master single file so that loading functions still work
-    writeTasks.push(this._writeNpy(this.dirHandle, baseName + '_annotation.npy', mask, shape));
+    // Removed writing out the master single file. We strictly only save to the class child folders now.
 
     await Promise.all(writeTasks);
     return { saved: true };
@@ -166,11 +200,7 @@ const API = {
     
     const deleteTasks = [];
 
-    deleteTasks.push((async () => {
-      try {
-        await this.dirHandle.removeEntry(annName);
-      } catch (e) {}
-    })());
+    // Removed root-level master mask deletion since it's no longer generated.
 
     // Try to delete class-specific ones
     for (const cls of classesInfo) {
