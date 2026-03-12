@@ -265,36 +265,50 @@ class AnnotationCanvas {
     ctx.clearRect(0, 0, c.width, c.height);
     if (!this.mask || !this.showOverlay) return;
 
-    // Create ImageData from mask
+    // Pre-build a color lookup table indexed by classId (avoids .find() and regex per pixel)
+    const maxClassId = this.classes.reduce((m, cl) => Math.max(m, cl.id), 0);
+    const lutR = new Uint8Array(maxClassId + 1);
+    const lutG = new Uint8Array(maxClassId + 1);
+    const lutB = new Uint8Array(maxClassId + 1);
+    const lutValid = new Uint8Array(maxClassId + 1);
+    for (let j = 0; j < this.classes.length; j++) {
+      const cl = this.classes[j];
+      const rgb = this._hexToRgb(cl.color);
+      lutR[cl.id] = rgb.r;
+      lutG[cl.id] = rgb.g;
+      lutB[cl.id] = rgb.b;
+      lutValid[cl.id] = 1;
+    }
+
     const imgData = ctx.createImageData(this.imageW, this.imageH);
     const data = imgData.data;
     const alpha = Math.round(this.overlayOpacity * 255);
+    const mask = this.mask;
+    const len = mask.length;
 
-    for (let i = 0; i < this.mask.length; i++) {
-      const classId = this.mask[i];
-      if (classId === 0) continue;
-      const cls = this.classes.find(cl => cl.id === classId);
-      if (!cls) continue;
-
-      const rgb = this._hexToRgb(cls.color);
-      const idx = i * 4;
-      data[idx]     = rgb.r;
-      data[idx + 1] = rgb.g;
-      data[idx + 2] = rgb.b;
+    for (let i = 0; i < len; i++) {
+      const cid = mask[i];
+      if (cid === 0 || cid > maxClassId || !lutValid[cid]) continue;
+      const idx = i << 2; // i * 4 via bitshift
+      data[idx]     = lutR[cid];
+      data[idx + 1] = lutG[cid];
+      data[idx + 2] = lutB[cid];
       data[idx + 3] = alpha;
     }
 
-    // Draw to off-screen then scale
-    const offscreen = document.createElement('canvas');
-    offscreen.width = this.imageW;
-    offscreen.height = this.imageH;
-    offscreen.getContext('2d').putImageData(imgData, 0, 0);
+    // Reuse cached offscreen canvas instead of creating a new DOM element every frame
+    if (!this._annoOffscreen || this._annoOffscreen.width !== this.imageW || this._annoOffscreen.height !== this.imageH) {
+      this._annoOffscreen = document.createElement('canvas');
+      this._annoOffscreen.width = this.imageW;
+      this._annoOffscreen.height = this.imageH;
+    }
+    this._annoOffscreen.getContext('2d').putImageData(imgData, 0, 0);
 
     ctx.save();
     ctx.translate(this.panX, this.panY);
     ctx.scale(this.zoom, this.zoom);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(offscreen, 0, 0);
+    ctx.drawImage(this._annoOffscreen, 0, 0);
     ctx.restore();
   }
 
@@ -348,6 +362,12 @@ class AnnotationCanvas {
     c.addEventListener('contextmenu', (e) => e.preventDefault());
 
     window.addEventListener('resize', () => this.handleResize());
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'Control' && this.isResizingBrush) {
+        this.isResizingBrush = false;
+        this._updateCursor();
+      }
+    });
   }
 
   _getPos(e) {
@@ -493,6 +513,8 @@ class AnnotationCanvas {
   }
 
   _updateCursor() {
+    // Always clear any inline cursor style (e.g. 'ew-resize' from Ctrl+Move)
+    this.interCanvas.style.cursor = '';
     if (this.tool === 'brush' || this.tool === 'eraser') {
       this.container.className = this.tool + '-cursor';
     } else {
@@ -633,7 +655,11 @@ class AnnotationCanvas {
 
   _paintLine(from, to) {
     const dist = Math.hypot(to.x - from.x, to.y - from.y);
-    const steps = Math.max(1, Math.ceil(dist));
+    // Huge optimization: Step by fraction of the brush radius instead of 1px at a time
+    const r = Math.max(1, Math.round(this.brushSize / this.zoom));
+    const stepDist = Math.max(1, r / 3); 
+    const steps = Math.max(1, Math.ceil(dist / stepDist));
+    
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       this._paintAt({
